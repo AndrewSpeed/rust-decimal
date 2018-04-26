@@ -1213,10 +1213,11 @@ fn shl_internal(blocks: &mut [u32], shift: u32, carry: u32) -> u32 {
     let mut shift = shift;
 
     // Whole blocks first
+    let ptr = blocks.as_mut_ptr();
     while shift >= 32 {
-        // memcpy would be useful here
-        for i in (1..blocks.len()).rev() {
-            blocks[i] = blocks[i - 1];
+        // Equiv of memmove
+        unsafe {
+            ::std::ptr::copy(ptr.offset(0), ptr.offset(1), blocks.len() - 1);
         }
         blocks[0] = 0;
         shift -= 32;
