@@ -1141,12 +1141,11 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
     // Add one onto the complement
     add_internal(&mut complement, &[1u32]);
 
-    // Make sure the remainder is 0
-    remainder.iter_mut().for_each(|x| *x = 0);
-
     // If we have nothing in our hi+ block then shift over till we do
     let mut blocks_to_process = 0;
-    while blocks_to_process < 4 && quotient[3] == 0 {
+    // We have a total of four blocks. If we had 1,0,0,0 (worst case)
+    //  we'd only need to shift 3 times
+    while quotient[3] == 0 && blocks_to_process < 4 {
         // Shift whole blocks to the "left"
         shl_internal(quotient, 32, 0);
 
@@ -1155,16 +1154,20 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
     }
 
     // Let's try and do the addition...
+    // If blocks to process is 3 (worst case...) then block goes from
+    //  0000 0011 to 0110 0000 = 96 leaving 32 to process.
+    // If quotient was already filled then we'd have 128 to process.
     let mut block = blocks_to_process << 5;
     let mut working = [0u32, 0u32, 0u32, 0u32];
+    let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
     while block < 128 {
 
         // << 1 for quotient AND remainder
         let carry = shl_internal(quotient, 1, 0);
-        shl_internal(remainder, 1, carry);
+        shl_internal(&mut working_remainder, 1, carry);
 
         // Copy the remainder of working into sub
-        working.copy_from_slice(remainder);
+        working.copy_from_slice(&working_remainder);
 
         // Add the remainder with the complement
         add_internal(&mut working, &complement);
@@ -1172,13 +1175,16 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
         // Check for the significant bit - move over to the quotient
         // as necessary
         if (working[3] & 0x8000_0000) == 0 {
-            remainder.copy_from_slice(&working);
+            working_remainder.copy_from_slice(&working);
             quotient[0] |= 1;
         }
 
-        // Increment our pointer
+        // Increment our block count
         block += 1;
     }
+
+    // Copy the remainder before we go
+    remainder.copy_from_slice(&working_remainder);
 }
 
 // Returns remainder
@@ -1202,27 +1208,26 @@ fn div_by_u32(bits: &mut [u32], divisor: u32) -> u32 {
     }
 }
 
-#[inline]
-fn shl_internal(bits: &mut [u32], shift: u32, carry: u32) -> u32 {
+fn shl_internal(blocks: &mut [u32], shift: u32, carry: u32) -> u32 {
 
     let mut shift = shift;
 
     // Whole blocks first
     while shift >= 32 {
         // memcpy would be useful here
-        for i in (1..bits.len()).rev() {
-            bits[i] = bits[i - 1];
+        for i in (1..blocks.len()).rev() {
+            blocks[i] = blocks[i - 1];
         }
-        bits[0] = 0;
+        blocks[0] = 0;
         shift -= 32;
     }
 
     // Continue with the rest
     if shift > 0 {
         let mut carry = carry;
-        for part in bits.iter_mut() {
-            let b = *part >> (32 - shift);
-            *part = (*part << shift) | carry;
+        for block in blocks.iter_mut() {
+            let b = *block >> (32 - shift);
+            *block = (*block << shift) | carry;
             carry = b;
         }
         carry
@@ -1752,7 +1757,7 @@ impl<'a> Neg for &'a Decimal {
             lo: self.lo,
             mid: self.mid,
         }
-    }            
+    }
 }
 
 forward_all_binop!(impl Add for Decimal, add);
@@ -2168,6 +2173,7 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
 
         // Check for underflow
         let mut final_scale: u32 = quotient_scale as u32;
+
         if final_scale > MAX_PRECISION {
             let mut remainder = 0;
 
