@@ -18,8 +18,8 @@ travis-ci = { repository = "paupino/rust-decimal", branch = "master" }
 
 [dependencies]
 num = "0.1"
-byteorder = "1.0"
-lazy_static = "0.2"
+byteorder = "1.2"
+lazy_static = "1.0"
 postgres = { version = "0.15", optional = true }
 serde = { version = "1.0", optional = true }
 
@@ -32,8 +32,9 @@ serde_derive = "1.0"
 default = ["serde"]
 comparitive = []
 
-[profile.bench]
-debug = true
+#[profile.bench]
+#debug = true
+#opt-level = 0
 
 [workspace]
 members = [".", "./macros"]

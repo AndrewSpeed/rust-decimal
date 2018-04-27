@@ -664,7 +664,7 @@ impl Decimal {
                 // No far left bit, the mantissa can withstand a shift-left without overflowing
                 exponent10 -= 1;
                 exponent5 += 1;
-                shl_internal(bits, 1, 0);
+                shl_bit(bits, 0);
             } else {
                 // The mantissa would overflow if shifted. Therefore it should be
                 // directly divided by 5. This will lose significant digits, unless
@@ -1138,16 +1138,20 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
         0xFFFF_FFFF,
     ];
 
-    // Add one onto the complement
+    // Add one onto the complement to get the twos complement
     add_internal(&mut complement, &[1u32]);
 
-    // If we have nothing in our hi+ block then shift over till we do
+    // If we have nothing in our low block then shift over till we do
     let mut blocks_to_process = 0;
     // We have a total of four blocks. If we had 1,0,0,0 (worst case)
     //  we'd only need to shift 3 times
+    let ptr = quotient.as_mut_ptr();
     while quotient[3] == 0 && blocks_to_process < 4 {
-        // Shift whole blocks to the "left"
-        shl_internal(quotient, 32, 0);
+        // Shift whole block to the "left"
+        unsafe {
+            ::std::ptr::copy(ptr.offset(0), ptr.offset(1), 3);
+        }
+        quotient[0] = 0;
 
         // Incremember the counter
         blocks_to_process += 1;
@@ -1163,8 +1167,8 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
     while block < 128 {
 
         // << 1 for quotient AND remainder
-        let carry = shl_internal(quotient, 1, 0);
-        shl_internal(&mut working_remainder, 1, carry);
+        let carry = shl_bit(quotient, 0);
+        shl_bit(&mut working_remainder, carry);
 
         // Copy the remainder of working into sub
         working.copy_from_slice(&working_remainder);
@@ -1208,33 +1212,15 @@ fn div_by_u32(bits: &mut [u32], divisor: u32) -> u32 {
     }
 }
 
-fn shl_internal(blocks: &mut [u32], shift: u32, carry: u32) -> u32 {
-
-    let mut shift = shift;
-
-    // Whole blocks first
-    let ptr = blocks.as_mut_ptr();
-    while shift >= 32 {
-        // Equiv of memmove
-        unsafe {
-            ::std::ptr::copy(ptr.offset(0), ptr.offset(1), blocks.len() - 1);
-        }
-        blocks[0] = 0;
-        shift -= 32;
+#[inline]
+fn shl_bit(blocks: &mut [u32], carry: u32) -> u32 {
+    let mut carry = carry;
+    for block in blocks.iter_mut() {
+        let b = *block >> 31;
+        *block = (*block << 1) | carry;
+        carry = b;
     }
-
-    // Continue with the rest
-    if shift > 0 {
-        let mut carry = carry;
-        for block in blocks.iter_mut() {
-            let b = *block >> (32 - shift);
-            *block = (*block << shift) | carry;
-            carry = b;
-        }
-        carry
-    } else {
-        0
-    }
+    carry
 }
 
 #[inline]
