@@ -1141,13 +1141,13 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
     // Add one onto the complement to get the twos complement
     add_internal(&mut complement, &[1u32]);
 
-    // If we have nothing in our low block then shift over till we do
+    // If we have nothing in our hi+ block then shift left till we do
     let mut blocks_to_process = 0;
     // We have a total of four blocks. If we had 1,0,0,0 (worst case)
     //  we'd only need to shift 3 times
     let ptr = quotient.as_mut_ptr();
     while quotient[3] == 0 && blocks_to_process < 4 {
-        // Shift whole block to the "left"
+        // Shift a whole block to the "left"
         unsafe {
             ::std::ptr::copy(ptr.offset(0), ptr.offset(1), 3);
         }
@@ -1157,7 +1157,7 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
         blocks_to_process += 1;
     }
 
-    // Let's try and do the addition...
+    // Do the addition
     // If blocks to process is 3 (worst case...) then block goes from
     //  0000 0011 to 0110 0000 = 96 leaving 32 to process.
     // If quotient was already filled then we'd have 128 to process.
