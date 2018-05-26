@@ -1157,10 +1157,10 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], _: &Decimal, 
     //   e.g. 0000 0001 << 5 = 0010 0000 = 32
     //        0000 0010 << 5 = 0100 0000 = 64
     //   etc.
-    let mut block = whole_blocks_moved << 5;
+    let block = whole_blocks_moved << 5;
     let mut working = [0u32, 0u32, 0u32, 0u32];
     let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
-    while block < 128 {
+    for _ in block ..= 128 {
 
         // << 1 for quotient AND remainder
         let carry = shl_bit(quotient, 0);
@@ -1178,9 +1178,6 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], _: &Decimal, 
             working_remainder.copy_from_slice(&working);
             quotient[0] |= 1;
         }
-
-        // Increment our block count
-        block += 1;
     }
 
     // Copy the remainder before we go
