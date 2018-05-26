@@ -1124,21 +1124,7 @@ fn mul_part(left: u32, right: u32, high: u32) -> (u32, u32) {
     (lo, hi)
 }
 
-fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u32; 3]) {
-    // There are a couple of ways to do division on binary numbers:
-    //   1. Using long division
-    //   2. Using the complement method
-    // ref: http://paulmason.me/dividing-binary-numbers-part-2/
-    let mut complement = [
-        divisor[0] ^ 0xFFFF_FFFF,
-        divisor[1] ^ 0xFFFF_FFFF,
-        divisor[2] ^ 0xFFFF_FFFF,
-        0xFFFF_FFFF,
-    ];
-
-    // Add one onto the complement to get the two's complement
-    add_internal(&mut complement, &[1u32]);
-
+fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor_twos_complement: &[u32; 4]) {
     // If we have nothing in our hi+ block then shift left till we do
     let mut blocks_to_process = 0;
     // We have a total of four blocks. If we had 1,0,0,0 (worst case)
@@ -1172,7 +1158,7 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
         working.copy_from_slice(&working_remainder);
 
         // Add the remainder with the complement
-        add_internal(&mut working, &complement);
+        add_internal(&mut working, divisor_twos_complement);
 
         // Check for the significant bit - move over to the quotient
         // as necessary
@@ -1239,6 +1225,18 @@ fn cmp_internal(left: &[u32; 3], right: &[u32; 3]) -> Ordering {
 #[inline]
 fn is_all_zero(bits: &[u32]) -> bool {
     bits.iter().all(|b| *b == 0)
+}
+
+#[inline]
+fn twos_complement(num: &Decimal) -> [u32;4] {
+    let mut result = [
+        num.lo ^ 0x_FFFF_FFFF,
+        num.mid ^ 0x_FFFF_FFFF,
+        num.hi ^ 0x_FFFF_FFFF,
+        0x_FFFF_FFFF,
+    ];
+    add_internal(&mut result, &ONE_INTERNAL_REPR);
+    result
 }
 
 macro_rules! impl_from {
@@ -2098,7 +2096,7 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         }
 
         let dividend = [self.lo, self.mid, self.hi];
-        let divisor = [other.lo, other.mid, other.hi];
+        let divisor_twos_complement = twos_complement(&other);
         let mut quotient = [0u32, 0u32, 0u32];
         let mut quotient_scale: i32 = self.scale() as i32 - other.scale() as i32;
 
@@ -2119,6 +2117,10 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         let mut remainder_scale = quotient_scale;
         let mut underflow;
 
+        // There are a couple of ways to do division on binary numbers:
+        //   1. Using long division
+        //   2. Using the complement method
+        // ref: http://paulmason.me/dividing-binary-numbers-part-2/
         // The basic idea here is to keep doing integral division and
         // with each remainder, multiplying by 10 and increasing the scale.
         // e.g.
@@ -2129,7 +2131,7 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         //   2*10 / 4: wq = 5, ws = 2, r = 0
         //   q = 2.2 + 0.05 = 2.25
         loop {
-            div_internal(&mut working_quotient, &mut working_remainder, &divisor);
+            div_internal(&mut working_quotient, &mut working_remainder, &divisor_twos_complement);
 
             // Add the current result to the quotient at the appropriate scale
             underflow = add_with_scale_internal(
@@ -2264,8 +2266,8 @@ impl<'a, 'b> Rem<&'b Decimal> for &'a Decimal {
         // We use an aligned array since we'll be using it alot.
         let mut working_quotient = [self.lo, self.mid, self.hi, 0u32];
         let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
-        let divisor = [other.lo, other.mid, other.hi];
-        div_internal(&mut working_quotient, &mut working_remainder, &divisor);
+        let divisor_twos_complement = twos_complement(&other);
+        div_internal(&mut working_quotient, &mut working_remainder, &divisor_twos_complement);
 
         // Remainder has no scale however does have a sign (the same as self)
         Decimal {
