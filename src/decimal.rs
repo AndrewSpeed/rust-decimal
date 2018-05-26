@@ -1128,9 +1128,7 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
     // There are a couple of ways to do division on binary numbers:
     //   1. Using long division
     //   2. Using the complement method
-    // ref: https://www.wikihow.com/Divide-Binary-Numbers
-    // The complement method basically keeps trying to subtract the
-    // divisor until it can't anymore and placing the rest in remainder.
+    // ref: http://paulmason.me/dividing-binary-numbers-part-2/
     let mut complement = [
         divisor[0] ^ 0xFFFF_FFFF,
         divisor[1] ^ 0xFFFF_FFFF,
@@ -1138,7 +1136,7 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor: &[u3
         0xFFFF_FFFF,
     ];
 
-    // Add one onto the complement to get the twos complement
+    // Add one onto the complement to get the two's complement
     add_internal(&mut complement, &[1u32]);
 
     // If we have nothing in our hi+ block then shift left till we do
@@ -2121,8 +2119,19 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         let mut remainder_scale = quotient_scale;
         let mut underflow;
 
+        // The basic idea here is to keep doing integral division and
+        // with each remainder, multiplying by 10 and increasing the scale.
+        // e.g.
+        //   9 / 4: wq = 2, ws = 0, r = 1
+        //   q = 2
+        //   1*10 / 4: wq = 2, ws = 1, r = 2
+        //   q = 2 + 0.2 = 2.2
+        //   2*10 / 4: wq = 5, ws = 2, r = 0
+        //   q = 2.2 + 0.05 = 2.25
         loop {
             div_internal(&mut working_quotient, &mut working_remainder, &divisor);
+
+            // Add the current result to the quotient at the appropriate scale
             underflow = add_with_scale_internal(
                 &mut quotient,
                 &mut quotient_scale,
@@ -2137,12 +2146,15 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
                 *part = lo;
                 overflow = hi;
             }
-            // Copy temp remainder into the temp quotient section
+
+            // Move the remainder so that next loop we divide by that
             working_quotient.copy_from_slice(&working_remainder);
 
+            // Increase our scale
             remainder_scale += 1;
             working_scale = remainder_scale;
 
+            // We can exit if we have underflow or our remainder is 0
             if underflow || is_all_zero(&working_remainder) {
                 break;
             }
