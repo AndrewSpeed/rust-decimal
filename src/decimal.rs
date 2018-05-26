@@ -1160,7 +1160,7 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], _: &Decimal, 
     let block = whole_blocks_moved << 5;
     let mut working = [0u32, 0u32, 0u32, 0u32];
     let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
-    for _ in block ..= 128 {
+    for _ in block .. 128 {
 
         // << 1 for quotient AND remainder
         let carry = shl_bit(quotient, 0);
