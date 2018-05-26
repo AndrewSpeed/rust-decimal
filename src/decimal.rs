@@ -1124,13 +1124,22 @@ fn mul_part(left: u32, right: u32, high: u32) -> (u32, u32) {
     (lo, hi)
 }
 
-fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor_twos_complement: &[u32; 4]) {
+fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], _: &Decimal, divisor_twos_complement: &[u32; 4]) {
+
+    //test div_negative_pi         ... bench:      20,046 ns/iter (+/- 8,123)
+    //test div_negative_point_five ... bench:         350 ns/iter (+/- 31)
+    //test div_one                 ... bench:           9 ns/iter (+/- 6)
+    //test div_one_hundred         ... bench:         473 ns/iter (+/- 34)
+    //test div_pi                  ... bench:      20,108 ns/iter (+/- 719)
+    //test div_point_zero_one      ... bench:         188 ns/iter (+/- 21)
+    //test div_two                 ... bench:         353 ns/iter (+/- 20)
+
     // If we have nothing in our hi+ block then shift left till we do
-    let mut blocks_to_process = 0;
+    let mut whole_blocks_moved = 0;
     // We have a total of four blocks. If we had 1,0,0,0 (worst case)
     //  we'd only need to shift 3 times
     let ptr = quotient.as_mut_ptr();
-    while quotient[3] == 0 && blocks_to_process < 4 {
+    while quotient[3] == 0 && whole_blocks_moved < 4 {
         // Shift a whole block to the "left"
         unsafe {
             ::std::ptr::copy(ptr.offset(0), ptr.offset(1), 3);
@@ -1138,14 +1147,17 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor_twos_
         quotient[0] = 0;
 
         // Incremember the counter
-        blocks_to_process += 1;
+        whole_blocks_moved += 1;
     }
 
     // Do the addition
-    // If blocks to process is 3 (worst case...) then block goes from
-    //  0000 0011 to 0110 0000 = 96 leaving 32 to process.
-    // If quotient was already filled then we'd have 128 to process.
-    let mut block = blocks_to_process << 5;
+    // For each block that has moved, we've done 32 shifts.
+    // We could do whole_blocks_moved * 32 or alternatively
+    // left shift by 5.
+    //   e.g. 0000 0001 << 5 = 0010 0000 = 32
+    //        0000 0010 << 5 = 0100 0000 = 64
+    //   etc.
+    let mut block = whole_blocks_moved << 5;
     let mut working = [0u32, 0u32, 0u32, 0u32];
     let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
     while block < 128 {
@@ -1173,6 +1185,38 @@ fn div_internal(quotient: &mut [u32; 4], remainder: &mut [u32; 4], divisor_twos_
 
     // Copy the remainder before we go
     remainder.copy_from_slice(&working_remainder);
+
+    /*
+    // Alt method, basic division
+    //test div_negative_pi         ... bench:       2,014 ns/iter (+/- 102)
+    //test div_negative_point_five ... bench:       1,987 ns/iter (+/- 79)
+    //test div_one                 ... bench:           9 ns/iter (+/- 0)
+    //test div_one_hundred         ... bench:       1,926 ns/iter (+/- 90)
+    //test div_pi                  ... bench:       2,139 ns/iter (+/- 95)
+    //test div_point_zero_one      ... bench:       2,421 ns/iter (+/- 104)
+    //test div_two                 ... bench:       2,110 ns/iter (+/- 67)
+
+    let mut result = [0u32, 0u32, 0u32, 0u32];
+    fn is_less_than(left: &Decimal, right: &[u32; 4]) -> bool {
+        let left_hi: u64 = left.hi as u64;
+        let right_hi: u64 = u64::from(right[3]) << 32 | u64::from(right[2]);
+        if left_hi < right_hi {
+            return true;
+        } else if left_hi > right_hi {
+            return false;
+        }
+        let left_lo: u64 = u64::from(left.mid) << 32 | u64::from(left.lo);
+        let right_lo: u64 = u64::from(right[1]) << 32 | u64::from(right[0]);
+        left_lo < right_lo
+    }
+
+    while is_less_than(divisor, quotient) {
+        add_internal(quotient, divisor_twos_complement);
+        add_internal(&mut result, &ONE_INTERNAL_REPR);
+    }
+    remainder.copy_from_slice(quotient);
+    quotient.copy_from_slice(&result);
+    */
 }
 
 // Returns remainder
@@ -2094,6 +2138,9 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         if self.is_zero() {
             return Decimal::zero();
         }
+        if other.is_one() {
+            return *self;
+        }
 
         let dividend = [self.lo, self.mid, self.hi];
         let divisor_twos_complement = twos_complement(&other);
@@ -2131,7 +2178,7 @@ impl<'a, 'b> Div<&'b Decimal> for &'a Decimal {
         //   2*10 / 4: wq = 5, ws = 2, r = 0
         //   q = 2.2 + 0.05 = 2.25
         loop {
-            div_internal(&mut working_quotient, &mut working_remainder, &divisor_twos_complement);
+            div_internal(&mut working_quotient, &mut working_remainder, other, &divisor_twos_complement);
 
             // Add the current result to the quotient at the appropriate scale
             underflow = add_with_scale_internal(
@@ -2267,7 +2314,7 @@ impl<'a, 'b> Rem<&'b Decimal> for &'a Decimal {
         let mut working_quotient = [self.lo, self.mid, self.hi, 0u32];
         let mut working_remainder = [0u32, 0u32, 0u32, 0u32];
         let divisor_twos_complement = twos_complement(&other);
-        div_internal(&mut working_quotient, &mut working_remainder, &divisor_twos_complement);
+        div_internal(&mut working_quotient, &mut working_remainder, other, &divisor_twos_complement);
 
         // Remainder has no scale however does have a sign (the same as self)
         Decimal {
